@@ -1,0 +1,21 @@
+[submodule "src/vulkan_ray_tracing/external/spirv-tools"]
+	path = src/vulkan_ray_tracing/external/spirv-tools
+	url = https://github.com/KhronosGroup/SPIRV-Tools
+[submodule "src/vulkan_ray_tracing/external/spirv-headers"]
+	path = src/vulkan_ray_tracing/external/spirv-headers
+	url = https://github.com/KhronosGroup/SPIRV-Headers
+[submodule "src/vulkan_ray_tracing/external/glslang"]
+	path = src/vulkan_ray_tracing/external/glslang
+	url = https://github.com/KhronosGroup/glslang.git
+[submodule "src/vulkan_ray_tracing/external/vcpkg"]
+	path = src/vulkan_ray_tracing/external/vcpkg
+	url = https://github.com/Microsoft/vcpkg.git
+[submodule "src/vulkan_ray_tracing/external/pybind11"]
+	path = src/vulkan_ray_tracing/external/pybind11
+	url = https://git.acem.ece.illinois.edu/lib/pybind11-2.10.4
+[submodule "src/vulkan_ray_tracing/external/glm"]
+	path = src/vulkan_ray_tracing/external/glm
+	url = https://github.com/g-truc/glm.git
+[submodule "external/SoftRas"]
+	path = external/SoftRas
+	url = https://github.com/ShichenLiu/SoftRas.git

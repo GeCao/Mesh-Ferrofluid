@@ -1,0 +1,15 @@
+demo/demo_data*/
+demo/img/
+demo/zeroforcing/
+build/
+log/
+assets/
+data/
+save/
+dist/
+.vscode
+*/__pycache__/
+__pycache__/
+notes.txt
+*.so
+*.egg-info

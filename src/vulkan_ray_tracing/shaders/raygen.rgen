@@ -1,0 +1,64 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_EXT_ray_query : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_buffer_reference2 : require
+
+#include "raycommon.glsl"
+
+// clang-format off
+layout(location = 0) rayPayloadEXT vec4 prd;
+layout(std430, buffer_reference, scalar) buffer Vertices {Vertex v[]; }; // Positions of an object
+layout(std430, buffer_reference, scalar) buffer Indices {Indice i[]; }; // Triangle indices
+layout(std430, buffer_reference, scalar) buffer PointsTx {Vertex p[]; }; // Tx points
+layout(std430, buffer_reference, scalar) buffer PointsRayDir {Vertex dir[]; }; // Ray_Dir points
+layout(set = 0, binding = eTlas) uniform accelerationStructureEXT topLevelAS;
+layout(set = 0, binding = eOutImage, scalar) buffer OutputBuffer {vec4 occlusion[]; } outputBuffer; // [H, W]
+layout(push_constant) uniform ObjDesc_ { ObjDesc i[]; } objDesc;
+// clang-format on
+
+
+void main()
+{
+  const uint index = gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x; // for 30×20 layout
+  const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy);
+
+  ObjDesc      objResource   = objDesc.i[0];  // TODO:
+  Vertices     vertices      = Vertices(objResource.vertexAddress);
+  Indices      indices       = Indices(objResource.indexAddress);
+  PointsTx     txs           = PointsTx(objResource.txAddress);
+  PointsRayDir rayDirs       = PointsRayDir(objResource.rayDirAddress);
+
+  vec3 tx = txs.p[int(pixelCenter.y)].pos;
+  vec3 rayDir = rayDirs.dir[index].pos;
+
+  vec3 origin    = tx;
+  vec3 direction = rayDir;
+
+  float tMin     = 0.001;
+  float tMax     = 10000.0;
+
+  outputBuffer.occlusion[index] = vec4(0.0, 0.0, 0.0, -1.0); // example value as miss
+
+  traceRayEXT(topLevelAS,     // acceleration structure
+              gl_RayFlagsOpaqueEXT, // rayFlags
+              0xFF,           // cullMask
+              0,              // sbtRecordOffset
+              0,              // sbtRecordStride
+              0,              // missIndex
+              origin.xyz,     // ray origin
+              tMin,           // ray min range
+              direction.xyz,  // ray direction
+              tMax,           // ray max range
+              0             // payload (location = 0)
+  );
+
+  if (prd.w > 0) {
+    const float geom_dist = length(prd.xyz - tx);
+    const int face_idx = int(prd.w - 1);
+    ivec3 ind = indices.i[face_idx].triangle_index;
+    outputBuffer.occlusion[index] = vec4(ind.xyz, geom_dist); // Occluded by some object
+  }
+}
