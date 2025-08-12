@@ -916,3 +916,54 @@ def compute_mean_curvature(vertices: torch.Tensor, faces: torch.Tensor) -> torch
         vert_mean_curvature / 2.0
     )  # What we sovled is K.dot(n), which equals 2.0 * kappa, see page 4 from reference
     return vert_mean_curvature
+
+
+def get_edge_unique(verts: torch.Tensor, faces: torch.Tensor) -> List[torch.Tensor]:
+    """Get the unique edge from a mesh geometry
+
+    face_edge_indices can be further utilized for scatter_add_
+    [N_edges,].scatter_add_(..., src=[N_faces*dim,], index=face_edge_indices)
+
+    Args:
+        verts (torch.Tensor): [N_verts, dim]
+        faces (torch.Tensor): [N_faces, dim]
+
+    Returns:
+        List[torch.Tensor]:
+            edges: torch.Tensor = [N_edges, dim]
+            face_edge_indices: torch.Tensor = [N_faces, dim]
+            edge_adjacent_faces: torch.Tensor = [N_edges, 2]
+    """
+    N_verts, dim = verts.shape
+    N_faces, dim = faces.shape
+
+    face_edges = torch.cat(
+        (faces[..., 1:3], faces[..., 2:3], faces[..., 0:1], faces[..., 0:2]), dim=-1
+    )  # [N_faces, 6]
+    face_edges = face_edges.reshape(N_faces * dim, 2)  # [N_faces * dim, 2]
+    face_edges_face_idx = (
+        torch.linspace(0, N_faces - 1, N_faces, dtype=faces.dtype, device=faces.device)[
+            :, None
+        ]
+        .repeat(1, 3)
+        .reshape(N_faces * dim)
+    )  # [N_faces * dim, 2]
+    # Make the edges unique
+    face_edges_flags = (
+        face_edges.max(dim=-1)[0] * N_verts + face_edges.min(dim=-1)[0]
+    )  # [N_faces * dim]
+    edges, face_edges_indices = torch.unique(
+        face_edges_flags, sorted=False, return_inverse=True
+    )  # [N_edges], [N_faces * dim]
+    edges = torch.stack((edges // N_verts, edges % N_verts), dim=-1)  # [N_edges, 2]
+    # Note face_edges_indices can be served as the scatter index
+
+    N_edges, _ = edges.shape
+    edge_adjacent_faces = torch.zeros((N_edges, 2), device=faces.device, dtype=faces.dtype)
+    edge_adjacent_faces[..., 0].scatter_add_(dim=0, index=face_edges_indices, src=face_edges_face_idx)
+    edge_adjacent_faces[..., 1].scatter_(dim=0, index=face_edges_indices, src=face_edges_face_idx)
+    edge_adjacent_faces[..., 0] = edge_adjacent_faces[..., 0] - edge_adjacent_faces[..., 1]
+    
+    face_edges_indices = face_edges_indices.to(faces.dtype)
+
+    return edges, face_edges_indices, edge_adjacent_faces

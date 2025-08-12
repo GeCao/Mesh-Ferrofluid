@@ -3,17 +3,28 @@ from typing import List
 from pytorch3d.structures import Meshes
 from pytorch3d.ops import cot_laplacian
 
-from src.mesh_BEM import AbstractBEMSolver, SingleLayer3d, DoubleLayer3d, RhsLayer3d
+from src.mesh_BEM import (
+    AbstractBEMSolver,
+    SingleLayer3d,
+    DoubleLayer3d,
+    RhsLayer3d,
+    MeshMOMRhsKernel,
+    MeshMOMZmatKernel,
+    MeshMOMInterpolateJsKernel,
+)
 from src.utils import (
     Logger,
     compute_face_areas,
     compute_face_normals,
     compute_vert_areas,
+    compute_vert_normals,
     get_vertices_from_index,
     compute_panel_relation,
     BoundaryType,
     VertexType,
     BEMType,
+    PanelRelationType,
+    get_gaussion_integration_points_and_weights,
 )
 
 
@@ -70,6 +81,118 @@ class MeshBEMSolver3d(AbstractBEMSolver):
             device=device,
             dtype=dtype,
         )
+
+        self.gaussian_points_1d_x, self.gaussian_weights_1d_x = (
+            get_gaussion_integration_points_and_weights(
+                gaussQR, device=device, dtype=dtype
+            )
+        )
+        self.gaussian_points_1d_y, self.gaussian_weights_1d_y = (
+            get_gaussion_integration_points_and_weights(
+                gaussQR - 1, device=device, dtype=dtype
+            )
+        )
+
+    def solve_MOM(
+        self,
+        verts: torch.Tensor,
+        faces: torch.Tensor,
+        edges: torch.Tensor,
+        face_edge_indices: torch.Tensor,
+    ) -> torch.Tensor:
+        """Mesh-based MOM solver
+
+        Args:
+            verts (torch.Tensor): [N_verts, dim]
+            faces (torch.Tensor): [N_faces, dim]
+            edges (torch.Tensor): [N_edges, dim]
+            face_edge_indices (torch.Tensor): [N_faces*dim]
+
+        Returns:
+            torch.Tensor: [B, N_Verts, dim=3], The solved unknown Js
+        """
+        assert self._BEM_type == int(BEMType.HELMHOLTZ_MOM)
+
+        N_verts, dim = verts.shape
+        N_faces, dim = faces.shape
+        N_edges, _ = edges.shape
+
+        device = verts.device
+        dtype = verts.dtype
+        batch_size = 1
+
+        face_areas = compute_face_areas(vertices=verts, faces=faces, keepdim=True)
+        face_normals = compute_face_normals(vertices=verts, faces=faces)
+
+        # Equation of CFIE
+        Zmn = torch.zeros((batch_size, N_edges * N_edges), dtype=dtype, device=device)
+        Zmn = Zmn + 1j * Zmn
+        Zmn_src = MeshMOMZmatKernel.apply(
+            verts,
+            faces,
+            face_areas,
+            face_normals,
+            self.gaussian_points_1d_x,
+            self.gaussian_weights_1d_x,
+            self.gaussian_points_1d_y,
+            self.gaussian_weights_1d_y,
+            self.wavenumber,
+        )
+        Zmn_index = face_edge_indices.reshape(
+            batch_size, N_faces * dim, 1
+        ) * N_edges + face_edge_indices.reshape(batch_size, 1, N_faces * dim)
+        Zmn_index = Zmn_index.reshape(batch_size, N_faces * dim * N_faces * dim)
+        Zmn_src = Zmn_src.reshape(batch_size, N_faces * dim * N_faces * dim)
+        Zmn_index = Zmn_index.to(torch.int64)
+        Zmn.scatter_add_(dim=-1, index=Zmn_index, src=Zmn_src)
+
+        rhs = torch.zeros((batch_size, N_edges), dtype=dtype, device=device)
+        rhs = rhs + 1j * rhs
+        rhs_src = MeshMOMRhsKernel.apply(
+            verts,
+            faces,
+            face_areas,
+            face_normals,
+            self.rhs_layer.gaussian_points_1d,
+            self.rhs_layer.gaussian_weights_1d,
+            self.wavenumber,
+        )  # [B, N_faces, dim, 1]
+        rhs.scatter_add_(
+            dim=-1,
+            index=face_edge_indices.reshape(batch_size, N_faces * dim).to(torch.int64),
+            src=rhs_src.reshape(batch_size, N_faces * dim),
+        )
+
+        # Solve.
+        Zmn = Zmn.reshape(batch_size, N_edges, N_edges)
+        rhs = rhs.reshape(batch_size, N_edges, 1)
+        print(f"Zmn = {Zmn.real.mean()}")
+        print(f"rhs = {rhs.abs().mean()}")
+        # u, s, v = torch.linalg.svd(Zmn)
+        # cond_number = s.abs().max() / s.abs().min()
+        # print(f"Condition number: {cond_number.item()}")
+        I_coeff = torch.linalg.solve(Zmn, rhs)  # [B, N_edges, 1]
+        print(f"I_coeff = {I_coeff.abs().mean()}")
+
+        # Interpolate from I_coeff to Js
+        I_coeff = I_coeff.reshape(batch_size, N_edges)
+        vert_Js = torch.zeros(
+            (batch_size, N_verts, dim), dtype=I_coeff.dtype, device=I_coeff.device
+        )
+        face_vert_Js = MeshMOMInterpolateJsKernel.apply(
+            verts, faces, face_edge_indices, face_areas, I_coeff
+        )
+        face_vert_Js = face_vert_Js.reshape(batch_size, N_faces * dim, dim)
+        vert_Js.scatter_add_(
+            dim=-2,
+            index=faces.reshape(1, N_faces * dim, 1)
+            .repeat(batch_size, 1, dim)
+            .to(torch.int64),
+            src=face_vert_Js,
+        )
+        print(f"vert_Js = {vert_Js.abs().mean()}")
+
+        return vert_Js
 
     def solve(
         self,

@@ -4,7 +4,6 @@ import torch
 import math
 import torch
 import torch.nn.functional as F
-from pytorch3d.structures import Meshes
 from typing import List, Tuple, Dict, Callable, Any
 from torch.utils.cpp_extension import load
 

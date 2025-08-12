@@ -11,7 +11,7 @@ conda create -n photon-splatting python=3.9
 conda activate photon-splatting
 pip install -r requirements.txt
 pip install torch==2.4.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install "git+https://github.com/facebookresearch/pytorch3d.git"
+pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
 pip install external/SoftRas
 pip install kaolin==0.17.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.4.0_cu118.html
 ```
@@ -46,6 +46,7 @@ pip install kaolin==0.17.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/t
 - If you failed of installing `pytorch3d`, the reason is various. Please check this page [Install.md](https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md) for any possible conflicts.
 - The reason that we are restricting this project to `cuda-11.8` comes from the restriction of `pytorch3d`. In other words, if you can keep `pytorch3d` downloaded without error, you will have no restriction on either `pytorch` or `cuda` version control.
 - `cub-1.10.0` is not effective in my test, although it was recommended in the [Install.md](https://github.com/facebookresearch/pytorch3d/blob/main/INSTALL.md) of `pytorch3d`, I recommend you use `cub-2.1.0` instead.
+- If you are failed of installing SoftRas, it might caused by 2 AtomicAdd functions's repeated definition.
 
 ## Citation
 
