@@ -71,12 +71,12 @@ def _render_mesh_to_file_2d(
             np_phi_max = phi_max.flatten().cpu().numpy()
             np_textures = textures.cpu().numpy()  # [B, N_faces, 3]
         elif n_ch == 1:
-            # Map it with jet colormap
+            # Map it with viridis colormap
             phi_min, _ = torch.min(face_phi, dim=1)  # [B, n_ch=1]
             phi_max, _ = torch.max(face_phi, dim=1)  # [B, n_ch=1]
             face_rgb = (face_phi.squeeze(-1) - phi_min) / (phi_max - phi_min)
             np_face_rgb = face_rgb.cpu().numpy()  # [B, N_faces]
-            np_textures = cm.jet(np_face_rgb.flatten())
+            np_textures = cm.viridis(np_face_rgb.flatten())
 
             np_phi_min = phi_min.flatten().cpu().numpy()
             np_phi_max = phi_max.flatten().cpu().numpy()
@@ -184,7 +184,7 @@ def _render_mesh_to_file_3d(
             phi_max, _ = torch.max(vert_phi.abs().reshape(batch_size, -1), dim=1)
             textures = vert_phi.abs() / phi_max.reshape(batch_size, 1, 1)
         elif n_ch == 1:
-            # Map it with jet colormap
+            # Map it with viridis colormap
             phi_min, _ = torch.min(vert_phi.reshape(batch_size, -1), dim=1)
             phi_min = phi_min.reshape(batch_size, 1, 1)
             phi_max, _ = torch.max(vert_phi.reshape(batch_size, -1), dim=1)
@@ -233,7 +233,7 @@ def render_mesh_to_file(
     faces: torch.Tensor,
     vert_phi: torch.Tensor = None,
     rasterizer: sr.SoftRasterizer = None,
-    eye: List[float] = [0, 0, -3],
+    eye: List[float] = [0, 0, 3],
     show_normals: bool = True,
 ) -> List[str]:
     """Render 2d/3d Mesh to file,
@@ -296,9 +296,61 @@ def save_heatmap(
     # np_img = [H, W, C]
     fig, ax = plt.subplots(1, 1)
     # plt.pcolormesh(new_gains)
-    plt.imshow(np_img, origin="lower", cmap="jet", vmax=vmax)
+    plt.imshow(np_img, origin="lower", cmap="viridis", vmax=vmax)
     plt.colorbar()
     plt.axis("off")
     plt.title(title)
     plt.savefig(filename, pad_inches=0, bbox_inches="tight")
+    plt.close()
+
+
+def vis_vert_Js(save_path: str, vert_Js: torch.Tensor, verts: torch.Tensor):
+    """Visualize (3D) surface current density (Js)
+    Args:
+        save_path: str
+        vert_Js: torch.Tensor = [N_verts, dim]
+        verts: torch.Tensor = [N_verts, dim]
+    """
+    N_verts, dim = verts.shape
+
+    fig = plt.figure(figsize=(5, 4))
+    axs = fig.add_subplot(1, 1, 1, projection="3d")
+
+    # edges, _, _ = get_edge_unique(verts=verts, faces=faces)
+    # edge_verts = torch.index_select(
+    #     verts, dim=-2, index=edges.flatten().to(torch.int64)
+    # )
+    # edge_verts = edge_verts.reshape(edges.shape[-2], 2, dim)
+    # np_edge_verts = edge_verts.cpu().numpy()
+    # edge_lc = Line3DCollection(np_edge_verts, colors="black", linewidths=0.001)
+    # axs.add_collection3d(edge_lc)
+
+    np_verts = verts.cpu().numpy()
+    np_color = vert_Js.real.norm(dim=-1).cpu().numpy()
+    im = axs.scatter(
+        np_verts[:, 0],
+        np_verts[:, 1],
+        np_verts[:, 2],
+        cmap="viridis",
+        s=3,
+        c=np_color,
+    )
+
+    # colorbar
+    clb = plt.colorbar(im)
+    clb.ax.set_title(r"$J_{s}$")
+
+    axs.set_title(f"ray tracing inside a mesh")
+    axs.set_xlabel(f"X")
+    axs.set_ylabel(f"Y")
+    axs.set_zlabel(f"Z")
+    # axs.set_xlim(-0.1, 0.1)
+    # axs.set_ylim(-0.1, 0.1)
+    # axs.set_zlim(-0.1, 0.1)
+    # axs.set_xticklabels([])
+    # axs.set_yticklabels([])
+    # axs.set_zticklabels([])
+    axs.axis("equal")
+    # axs.axis("off")
+    plt.savefig(save_path, pad_inches=0.2, bbox_inches="tight")
     plt.close()

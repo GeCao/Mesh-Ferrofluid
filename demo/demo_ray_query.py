@@ -19,44 +19,8 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 sys.path.append("../")
 
 
-from src.vulkan_ray_tracing import VulkanRayQuery  # Our vulkan-based ray tracer
-from src.utils import LoadMeshes, mkdir, ComputeFaceNormals, SampleSkydomRays
-
-
-def GetRayQueryDepthMap(
-    vulkan_ray_tracer, ray_o: torch.Tensor, ray_d: torch.Tensor, keepdim: bool = True
-) -> torch.Tensor:
-    """Given several camera points (ray_o), and ray directions,
-    This function will return a depth image for each camera
-
-    n_rays = height * width
-
-    Args:
-        vulkan_ray_tracer: VulkanRayQuery
-        ray_o: torch.Tensor = [B, dim=3]
-        ray_d: torch.Tensor = [(B), n_rays, dim=3]
-        keepdim: bool, returns [B, n_rays, 1] when it's True, [B, n_rays] when False
-    Returns:
-        torch.Tensor = [B, n_rays, (1)], the depth map of this ray query.
-        torch.Tensor = [B, n_rays, (3)], the face index map of this ray query.
-    """
-    dim = 3
-    n_rays = ray_d.shape[-2]
-    ray_d = ray_d + torch.zeros_like(ray_o).unsqueeze(-2)
-
-    np_ray_o = ray_o.flatten().to(torch.float32).cpu().numpy()  # [B * dim]
-    np_ray_d = ray_d.flatten().to(torch.float32).cpu().numpy()  # [B * HW * dim]
-    np_geom_mat = vulkan_ray_tracer.QueryForNLOS(np_ray_o, np_ray_d)  # [B * HW * 4]
-    np_geom_mat = np.asarray(np_geom_mat).reshape(*(ray_o.shape[:-1]), n_rays, 4)
-    np_geom_face = np_geom_mat[..., 0:3]
-    np_geom_depth = np_geom_mat[..., 3:4]
-    geom_face = torch.from_numpy(np_geom_face).to(ray_o.device).to(torch.int32)
-    geom_depth = torch.from_numpy(np_geom_depth).to(ray_o.device).to(ray_o.dtype)
-
-    if not keepdim:
-        geom_depth = geom_depth.squeeze(-1)
-
-    return geom_depth, geom_face
+from src.vulkan_ray_tracing import VulkanRayTracing  # Our vulkan-based ray tracer
+from src.utils import LoadMeshes, mkdir, SampleSkydomRays, GetRayQueryDepthMap
 
 
 def initialize_vulkan_ray_querier(
@@ -87,7 +51,7 @@ def initialize_vulkan_ray_querier(
     raygenShaderPath = "../src/vulkan_ray_tracing/spv/raygen.spv"
     missShaderPath = "../src/vulkan_ray_tracing/spv/miss.spv"
     chitShaderPath = "../src/vulkan_ray_tracing/spv/closesthit.spv"
-    ray_querier = VulkanRayQuery.RayQueryApp(
+    ray_querier = VulkanRayTracing.RayQueryApp(
         np_verts, np_faces, raygenShaderPath, missShaderPath, chitShaderPath
     )
     print(f"\n=============== Finished Initialize the Vulkan ray querier ===========\n")
@@ -146,7 +110,7 @@ def main(scene_name: str):
         for key in depth_maps:
             plt.figure()
             fig, axs = plt.subplots(1, 1)
-            im = plt.imshow(depth_maps[key][camera_index], cmap="jet")
+            im = plt.imshow(depth_maps[key][camera_index], cmap="viridis")
             axs.set_title(f"Depth Map by {key}")
             divider = make_axes_locatable(axs)
             cax = divider.append_axes("right", size="5%", pad=0.05)

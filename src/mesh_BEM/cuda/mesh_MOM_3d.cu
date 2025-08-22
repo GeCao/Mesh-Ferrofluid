@@ -74,7 +74,7 @@ __device__ void G(const scalar_t wavenumber, const scalar_t *p1, const scalar_t 
 {
     /*3D Green function for Helmholtz function
 
-    G = exp(-1j * k * r) / (4 * PI * r)
+    G = exp(1j * k * r) / (4 * PI * r)
 
     Args:
         wavenumber (float): wave number
@@ -84,13 +84,14 @@ __device__ void G(const scalar_t wavenumber, const scalar_t *p1, const scalar_t 
     Returns:
         torch.Tensor: G(p1, p2)
     */
+    scalar_t tmp_wavenumber = -wavenumber;
     scalar_t r_vec[3] = {p1[0] - p2[0], p1[1] - p2[1], p1[2] - p2[2]};
     scalar_t dist = sqrt(r_vec[0] * r_vec[0] + r_vec[1] * r_vec[1] + r_vec[2] * r_vec[2]);
     scalar_t inv_dist = 1 / dist;
-    scalar_t kx = wavenumber * dist;
+    scalar_t kx = tmp_wavenumber * dist;
 
-    G_real = cos(-kx) / (4 * M_PI) * inv_dist;
-    G_imag = sin(-kx) / (4 * M_PI) * inv_dist;
+    G_real = cos(kx) / (4 * M_PI) * inv_dist;
+    G_imag = sin(kx) / (4 * M_PI) * inv_dist;
 }
 
 template <typename scalar_t>
@@ -111,15 +112,16 @@ __device__ void gradG_y(
     Returns:
         torch.Tensor: grad^{prime} G(r, r_prime)
     */
+    scalar_t tmp_wavenumber = -wavenumber;
     scalar_t r_vec[3] = {p1[0] - p2[0], p1[1] - p2[1], p1[2] - p2[2]};
     scalar_t dist = sqrt(r_vec[0] * r_vec[0] + r_vec[1] * r_vec[1] + r_vec[2] * r_vec[2]);
     scalar_t inv_dist = 1 / dist;
-    scalar_t kx = wavenumber * dist;
+    scalar_t kx = tmp_wavenumber * dist;
 
     for (int axis = 0; axis < 3; ++axis)
     {
-        grad_G_real[axis] = (cos(-kx) - kx * sin(-kx)) / (4 * M_PI) * inv_dist * inv_dist * inv_dist * r_vec[axis];
-        grad_G_imag[axis] = (sin(-kx) + kx * cos(-kx)) / (4 * M_PI) * inv_dist * inv_dist * inv_dist * r_vec[axis];
+        grad_G_real[axis] = (cos(kx) + kx * sin(kx)) / (4 * M_PI) * inv_dist * inv_dist * inv_dist * r_vec[axis];
+        grad_G_imag[axis] = (sin(kx) - kx * cos(kx)) / (4 * M_PI) * inv_dist * inv_dist * inv_dist * r_vec[axis];
     }
 }
 

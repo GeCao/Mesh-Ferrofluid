@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import scipy.stats as st
 import matplotlib.pyplot as plt
 from typing import Tuple, List, Union
+from src.vulkan_ray_tracing import VulkanRayTracing  # Our vulkan-based ray tracer
 
 
 def PostProcessFeatures(
@@ -608,9 +609,280 @@ def squareToUniformHemisphere(r1: torch.Tensor, r2: torch.Tensor) -> torch.Tenso
     Cylinder_res = squareToUniformCylinder(r1, r2)
     z = Cylinder_res[..., 2] * 0.5 + 0.5
     r = torch.sqrt(1 - z * z)
-    res = [r * Cylinder_res[..., 0], r * Cylinder_res[..., 1], -z]
+    res = [r * Cylinder_res[..., 0], r * Cylinder_res[..., 1], z]
     res = torch.stack(res, dim=-1)  # [..., 3]
     return res
+
+
+def UniformSampleSphereOnSurface(
+    normal: torch.Tensor, N_sample_per_surface: int = 20
+) -> List[torch.Tensor]:
+    """Uniformly Sample rays from surface, according to a sphere
+    Args:
+        normals: torch.Tensor = [..., dim]
+    Return:
+        torch.Tensor: [..., N_sample_per_surface, dim]
+    """
+    device = normal.device
+    dtype = normal.dtype
+    r1 = torch.rand(
+        (*normal.shape[:-1], N_sample_per_surface), device=device, dtype=dtype
+    )
+    r2 = torch.rand(
+        (*normal.shape[:-1], N_sample_per_surface), device=device, dtype=dtype
+    )
+    ray_d = squareToUniformHemisphere(r1=r1, r2=r2)
+
+    pdf = 1 / (4 * math.pi)
+    pdf = pdf + torch.zeros_like(ray_d[..., 0:1])
+
+    return ray_d, pdf
+
+
+def UniformSampleHemisphereOnSurface(
+    normal: torch.Tensor, N_sample_per_surface: int = 20
+) -> List[torch.Tensor]:
+    """Uniformly Sample rays from surface, according to its normal atatched hemisphere
+    Args:
+        normals: torch.Tensor = [..., dim]
+    Return:
+        torch.Tensor: [..., N_sample_per_surface, dim]
+    """
+    device = normal.device
+    dtype = normal.dtype
+    # rot_theta, rot_phi = GetThetaAndPhiFromRayDirection(ray_d=normal, keepdim=False)
+    rot_sintheta, rot_costheta, rot_cosphi, rot_sinphi = GetSinAndCosFromRayDirection(
+        ray_d=normal, keepdim=False
+    )
+    r1 = torch.rand(
+        (*normal.shape[:-1], N_sample_per_surface), device=device, dtype=dtype
+    )
+    r2 = torch.rand(
+        (*normal.shape[:-1], N_sample_per_surface), device=device, dtype=dtype
+    )
+    ray_d = squareToUniformHemisphere(r1=r1, r2=r2)
+    rot_mat1 = torch.stack(
+        (
+            rot_costheta,
+            torch.zeros_like(rot_costheta),
+            rot_sintheta,
+            torch.zeros_like(rot_costheta),
+            torch.ones_like(rot_costheta),
+            torch.zeros_like(rot_costheta),
+            -rot_sintheta,
+            torch.zeros_like(rot_costheta),
+            rot_costheta,
+        ),
+        dim=-1,
+    ).reshape(*rot_costheta.shape, 1, 3, 3)
+    rot_mat2 = torch.stack(
+        (
+            rot_cosphi,
+            -rot_sinphi,
+            torch.zeros_like(rot_cosphi),
+            rot_sinphi,
+            rot_cosphi,
+            torch.zeros_like(rot_cosphi),
+            torch.zeros_like(rot_cosphi),
+            torch.zeros_like(rot_cosphi),
+            torch.ones_like(rot_cosphi),
+        ),
+        dim=-1,
+    ).reshape(*rot_cosphi.shape, 1, 3, 3)
+    rot_mat = rot_mat2 @ rot_mat1  # from z to free angle
+
+    # [..., N, dim=3]
+    sampled_rayds = (rot_mat @ ray_d.unsqueeze(-1)).squeeze(-1)
+    pdf = 1 / (2 * math.pi)
+
+    pdf = pdf + torch.zeros_like(sampled_rayds[..., 0:1])
+
+    return sampled_rayds, pdf
+
+
+def UniformSampleCosHemisphereOnSurface(
+    normal: torch.Tensor, N_sample_per_surface: int = 20
+) -> List[torch.Tensor]:
+    """Sample rays from surface, according to its normal atatched hemisphere
+    Args:
+        normals: torch.Tensor = [..., dim]
+    Return:
+        torch.Tensor: [..., N_sample_per_surface, dim]
+    """
+    device = normal.device
+    dtype = normal.dtype
+    # rot_theta, rot_phi = GetThetaAndPhiFromRayDirection(ray_d=normal, keepdim=False)
+    rot_sintheta, rot_costheta, rot_cosphi, rot_sinphi = GetSinAndCosFromRayDirection(
+        ray_d=normal, keepdim=False
+    )
+    r1 = torch.rand(
+        (*normal.shape[:-1], N_sample_per_surface), device=device, dtype=dtype
+    )
+    r2 = torch.rand(
+        (*normal.shape[:-1], N_sample_per_surface), device=device, dtype=dtype
+    )
+    ray_d = torch.stack(
+        (
+            r1.sqrt() * torch.cos(2 * math.pi * r2),
+            r1.sqrt() * torch.sin(2 * math.pi * r2),
+            torch.sqrt((1 - r1).clamp_(0, 1)),
+        ),
+        dim=-1,
+    )
+    pdf = ray_d[..., 2:3] / math.pi
+    rot_mat1 = torch.stack(
+        (
+            rot_costheta,
+            torch.zeros_like(rot_costheta),
+            rot_sintheta,
+            torch.zeros_like(rot_costheta),
+            torch.ones_like(rot_costheta),
+            torch.zeros_like(rot_costheta),
+            -rot_sintheta,
+            torch.zeros_like(rot_costheta),
+            rot_costheta,
+        ),
+        dim=-1,
+    ).reshape(*rot_costheta.shape, 1, 3, 3)
+    rot_mat2 = torch.stack(
+        (
+            rot_cosphi,
+            -rot_sinphi,
+            torch.zeros_like(rot_cosphi),
+            rot_sinphi,
+            rot_cosphi,
+            torch.zeros_like(rot_cosphi),
+            torch.zeros_like(rot_cosphi),
+            torch.zeros_like(rot_cosphi),
+            torch.ones_like(rot_cosphi),
+        ),
+        dim=-1,
+    ).reshape(*rot_cosphi.shape, 1, 3, 3)
+    rot_mat = rot_mat2 @ rot_mat1  # from z to free angle
+
+    # [..., N, dim=3]
+    sampled_rayds = (rot_mat @ ray_d.unsqueeze(-1)).squeeze(-1)
+
+    pdf = pdf + torch.zeros_like(sampled_rayds[..., 0:1])
+
+    return sampled_rayds, pdf
+
+
+def GetRayQueryDepthMap(
+    vulkan_ray_tracer, ray_o: torch.Tensor, ray_d: torch.Tensor, keepdim: bool = True
+) -> List[torch.Tensor]:
+    """Given several camera points (ray_o), and ray directions,
+    This function will return a depth image for each camera
+
+    n_rays = height * width
+
+    Args:
+        vulkan_ray_tracer: VulkanRayTracing
+        ray_o: torch.Tensor = [B, dim=3]
+        ray_d: torch.Tensor = [(B), n_rays, dim=3]
+        keepdim: bool, returns [B, n_rays, 1] when it's True, [B, n_rays] when False
+    Returns:
+        torch.Tensor = [B, n_rays, (1)], the depth map of this ray query.
+        torch.Tensor = [B, n_rays, (1)], the face index of this ray query.
+    """
+    dim = 3
+    n_rays = ray_d.shape[-2]
+    ray_d = ray_d + torch.zeros_like(ray_o).unsqueeze(-2)
+
+    np_ray_o = ray_o.flatten().to(torch.float32).cpu().numpy()  # [B * dim]
+    np_ray_d = ray_d.flatten().to(torch.float32).cpu().numpy()  # [B * HW * dim]
+    np_geom_mat = vulkan_ray_tracer.QueryForNLOS(np_ray_o, np_ray_d)  # [B * HW * 4]
+    np_geom_mat = np.asarray(np_geom_mat).reshape(*(ray_o.shape[:-1]), n_rays, 4)
+    np_geom_face_idx = np_geom_mat[..., 0:1]
+    np_geom_depth = np_geom_mat[..., 3:4]
+    geom_face_idx = torch.from_numpy(np_geom_face_idx).to(ray_o.device).to(torch.int32)
+    geom_depth = torch.from_numpy(np_geom_depth).to(ray_o.device).to(ray_o.dtype)
+
+    if not keepdim:
+        geom_depth = geom_depth.squeeze(-1)
+
+    return geom_depth, geom_face_idx
+
+
+def G(
+    wavenumber: float,
+    p1: torch.Tensor,
+    p2: torch.Tensor,
+    keepdim: bool,
+    pos_k: bool = False,
+) -> torch.Tensor:
+    """3D Green function
+
+    if pos_k:
+        G = exp(1j * k * r) / (4 * PI * r), when incident is exp(1j * k * x)
+    else:
+        G = exp(-1j * k * r) / (4 * PI * r), when incident is exp(-1j * k * x)
+
+    Args:
+        wavenumber (float): _description_
+        p1 (torch.Tensor): _description_
+        p2 (torch.Tensor): _description_
+        keepdim (bool): _description_
+
+    Returns:
+        torch.Tensor: _description_
+    """
+    tmp_wavenumber = wavenumber if pos_k else -wavenumber
+
+    dist = (p1 - p2).norm(dim=-1, keepdim=True)
+    singularity_mask = dist < 1e-6
+    inv_dist = torch.where(singularity_mask, torch.zeros_like(dist), 1.0 / dist)
+    kx = tmp_wavenumber * dist
+    G_output = (torch.cos(kx) + 1j * torch.sin(kx)) / (4 * math.pi) * inv_dist
+
+    if not keepdim:
+        G_output = G_output.squeeze(-1)
+
+    return G_output
+
+
+def gradG_y(
+    wavenumber: float, p1: torch.Tensor, p2: torch.Tensor, pos_k: bool = False
+) -> torch.Tensor:
+    """\partial_G \partial_p2
+
+    Args:
+        wavenumber (float): _description_
+        p1 (torch.Tensor): _description_
+        p2 (torch.Tensor): _description_
+
+    Returns:
+        torch.Tensor: _description_
+    """
+    tmp_wavenumber = wavenumber if pos_k else -wavenumber
+
+    ray_d = F.normalize(p1 - p2, dim=-1)
+    dist = (p1 - p2).norm(dim=-1, keepdim=True)
+    singularity_mask = dist < 1e-6
+    inv_dist = torch.where(singularity_mask, torch.zeros_like(dist), 1.0 / dist)
+    kx = tmp_wavenumber * dist
+
+    G_output = G(wavenumber=tmp_wavenumber, p1=p1, p2=p2, keepdim=True)
+    gradG_y_output = G_output * inv_dist * (1 - 1j * kx) * ray_d
+
+    return gradG_y_output
+
+
+def initialize_vulkan_ray_querier(verts: torch.Tensor, faces: torch.Tensor):
+    np_verts = verts.flatten().to(torch.float32).cpu().numpy()  # [N_verts * 3]
+    np_faces = faces.flatten().to(torch.uint32).cpu().numpy()  # [N_faces * 3]
+
+    # Initialize our ray querier
+    print(f"\n=============== Start Initialize the Vulkan ray querier ===========\n")
+    raygenShaderPath = "../src/vulkan_ray_tracing/spv/raygen.spv"
+    missShaderPath = "../src/vulkan_ray_tracing/spv/miss.spv"
+    chitShaderPath = "../src/vulkan_ray_tracing/spv/closesthit.spv"
+    ray_querier = VulkanRayTracing.RayQueryApp(
+        np_verts, np_faces, raygenShaderPath, missShaderPath, chitShaderPath
+    )
+    print(f"\n=============== Finished Initialize the Vulkan ray querier ===========\n")
+
+    return ray_querier
 
 
 def CalculateSkyboxViewPerspectiveMatrices(
@@ -823,7 +1095,9 @@ def GetThetaAndPhiFromSinAndCos(
     return [theta, phi]
 
 
-def GetSinAndCosFromRayDirection(ray_d: torch.Tensor) -> List[torch.Tensor]:
+def GetSinAndCosFromRayDirection(
+    ray_d: torch.Tensor, keepdim: bool = True
+) -> List[torch.Tensor]:
     costheta = torch.clamp(ray_d[..., 2:3], -1, 1)
     sintheta = torch.sqrt(1 - costheta * costheta)  # zero or positive
     eps = 0  # 1e-5
@@ -837,6 +1111,10 @@ def GetSinAndCosFromRayDirection(ray_d: torch.Tensor) -> List[torch.Tensor]:
 
     results = [sintheta, costheta, cosphi, sinphi]
     results = [torch.clamp(x, -1, 1) for x in results]
+
+    if not keepdim:
+        results = [x.squeeze(-1) for x in results]
+
     return results
 
 

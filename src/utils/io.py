@@ -224,7 +224,7 @@ def LoadPointCloudFromMesh(meshes: Meshes, num_pts_samples: int) -> torch.Tensor
     point_clouds, normals = sample_points_from_meshes(
         meshes, num_samples=num_pts_samples, return_normals=True
     )  # [F, NumOfSamples, 3]
-    return point_clouds
+    return point_clouds, normals
 
 
 def DumpCFGFile(

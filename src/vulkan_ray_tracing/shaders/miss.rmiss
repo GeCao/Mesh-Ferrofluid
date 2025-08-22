@@ -21,5 +21,5 @@ layout(push_constant) uniform ObjDesc_ { ObjDesc i[]; } objDesc;
 
 void main()
 {
-  prd = vec4(0, 0, 0, -1); // No occlusion -> w=-1, indicates no geometry detected
+  prd = vec4(-1, 0, 0, -1); // No occlusion -> w=-1, indicates no geometry detected
 }

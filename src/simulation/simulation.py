@@ -5,6 +5,7 @@ from typing import List, Dict
 
 from src.mesh_ferrofluid import MeshAdvection, MeshHelmholtzDecomposition, MeshPressure
 from src.mesh_BEM import MeshBEMSolver2d, MeshBEMSolver3d
+from src.mesh_WOB import MeshWOBSolver2d, MeshWOBSolver3d
 from src.utils import Logger, c0
 
 
@@ -194,6 +195,22 @@ class SimulationRunner(object):
                 gaussQR=self.EM_parameters.gaussQR,
                 order_type=self.EM_parameters.order_type,
                 BEM_type=self.EM_parameters.BEM_type,
+                wavenumber=2 * math.pi * self.EM_parameters.freq / c0,
+                logger=self.logger,
+                dtype=self.EM_parameters.dtype,
+                device=self.EM_parameters.device,
+            )
+
+    def create_mesh_WOB_solver(self):
+        if self.EM_parameters.dim == 2:
+            return MeshWOBSolver2d(
+                wavenumber=2 * math.pi * self.EM_parameters.freq / c0,
+                logger=self.logger,
+                dtype=self.EM_parameters.dtype,
+                device=self.EM_parameters.device,
+            )
+        elif self.EM_parameters.dim == 3:
+            return MeshWOBSolver3d(
                 wavenumber=2 * math.pi * self.EM_parameters.freq / c0,
                 logger=self.logger,
                 dtype=self.EM_parameters.dtype,

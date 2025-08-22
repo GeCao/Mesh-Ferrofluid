@@ -40,7 +40,7 @@ void main()
   float tMin     = 0.001;
   float tMax     = 10000.0;
 
-  outputBuffer.occlusion[index] = vec4(0.0, 0.0, 0.0, -1.0); // example value as miss
+  outputBuffer.occlusion[index] = vec4(-1.0, 0.0, 0.0, -1.0); // example value as miss
 
   traceRayEXT(topLevelAS,     // acceleration structure
               gl_RayFlagsOpaqueEXT, // rayFlags
@@ -59,6 +59,6 @@ void main()
     const float geom_dist = length(prd.xyz - tx);
     const int face_idx = int(prd.w - 1);
     ivec3 ind = indices.i[face_idx].triangle_index;
-    outputBuffer.occlusion[index] = vec4(ind.xyz, geom_dist); // Occluded by some object
+    outputBuffer.occlusion[index] = vec4(face_idx, 0, 0, geom_dist); // Occluded by some object
   }
 }

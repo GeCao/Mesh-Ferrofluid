@@ -959,11 +959,75 @@ def get_edge_unique(verts: torch.Tensor, faces: torch.Tensor) -> List[torch.Tens
     # Note face_edges_indices can be served as the scatter index
 
     N_edges, _ = edges.shape
-    edge_adjacent_faces = torch.zeros((N_edges, 2), device=faces.device, dtype=faces.dtype)
-    edge_adjacent_faces[..., 0].scatter_add_(dim=0, index=face_edges_indices, src=face_edges_face_idx)
-    edge_adjacent_faces[..., 1].scatter_(dim=0, index=face_edges_indices, src=face_edges_face_idx)
-    edge_adjacent_faces[..., 0] = edge_adjacent_faces[..., 0] - edge_adjacent_faces[..., 1]
-    
+    edge_adjacent_faces = torch.zeros(
+        (N_edges, 2), device=faces.device, dtype=faces.dtype
+    )
+    edge_adjacent_faces[..., 0].scatter_add_(
+        dim=0, index=face_edges_indices, src=face_edges_face_idx
+    )
+    edge_adjacent_faces[..., 1].scatter_(
+        dim=0, index=face_edges_indices, src=face_edges_face_idx
+    )
+    edge_adjacent_faces[..., 0] = (
+        edge_adjacent_faces[..., 0] - edge_adjacent_faces[..., 1]
+    )
+
     face_edges_indices = face_edges_indices.to(faces.dtype)
 
     return edges, face_edges_indices, edge_adjacent_faces
+
+
+def div_Js(
+    face_Js: torch.Tensor,
+    verts: torch.Tensor,
+    faces: torch.Tensor,
+    face_areas: torch.Tensor = None,
+    face_normals: torch.Tensor = None,
+    keepdim: bool = True,
+) -> torch.Tensor:
+    """
+    Compute approximate surface divergence of Js on each triangular face.
+
+    Args:
+        face_Js (torch.Tensor): [N_faces, 3], current density at vertices.
+        verts (torch.Tensor):   [N_verts, 3], vertex coordinates.
+        faces (torch.Tensor):   [N_faces, 3], vertex indices of each triangle.
+
+    Returns:
+        torch.Tensor: [N_faces, (1)], divergence values.
+    """
+    v0, v1, v2 = verts[faces[:, 0]], verts[faces[:, 1]], verts[faces[:, 2]]
+
+    if face_areas is None:
+        face_areas = compute_face_areas(vertices=verts, faces=faces, keepdim=keepdim)
+
+    if face_normals is None:
+        face_normals = compute_face_normals(vertices=verts, faces=faces)
+
+    # Edge vectors
+    e0 = v2 - v1
+    e1 = v0 - v2
+    e2 = v1 - v0
+
+    # Edge lengths
+    l0 = torch.linalg.norm(e0, dim=-1, keepdim=keepdim)  # opposite v0
+    l1 = torch.linalg.norm(e1, dim=-1, keepdim=keepdim)  # opposite v1
+    l2 = torch.linalg.norm(e2, dim=-1, keepdim=keepdim)  # opposite v2
+
+    t0 = F.normalize(
+        torch.cross(e0, face_normals, dim=-1), dim=-1
+    )  # outward normal to edge opposite v0
+    t1 = F.normalize(torch.cross(e1, face_normals, dim=-1), dim=-1)  # opposite v1
+    t2 = F.normalize(torch.cross(e2, face_normals, dim=-1), dim=-1)  # opposite v2
+
+    # Flux of Js across edges
+    flux = (
+        torch.sum(face_Js * t0, dim=1, keepdim=keepdim) * l0
+        + torch.sum(face_Js * t1, dim=1, keepdim=keepdim) * l1
+        + torch.sum(face_Js * t2, dim=1, keepdim=keepdim) * l2
+    )
+
+    # Divergence = flux / area
+    div = flux / (face_areas)
+
+    return div

@@ -11,7 +11,7 @@
 namespace py = pybind11;
 using namespace pybind11::literals;
 
-PYBIND11_MODULE(VulkanRayQuery, m)
+PYBIND11_MODULE(VulkanRayTracing, m)
 {
     m.doc() = "Vulkan-based Ray Query plugin for Python using Ray-Triangle intersection.";
 
