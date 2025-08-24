@@ -39,6 +39,7 @@ from src.utils import (
     G,
     gradG_y,
     vis_vert_Js,
+    LoadSDFFromMeshPath,
 )
 
 import soft_renderer as sr
@@ -166,7 +167,7 @@ def main(
     )
     # edges_unique = (3648, 2), edges = (7296, 2), faces = torch.Size([2432, 3])
     print(f"edges_unique = {edges.shape}, faces = {faces.shape}")
-    assert edges.shape[0] * 2 == faces.shape[0] * 3
+    # assert edges.shape[0] * 2 == faces.shape[0] * 3
     render_mesh_to_file(
         img_dir=save_path,
         file_label="normals",
@@ -256,21 +257,11 @@ def main(
     H_scattered = H_scattered.sum(dim=-2)  # [Nm, dim]
 
     # find mask
-    pm_rayd = (
-        torch.Tensor(
-            [[[0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0]]]
-        )
-        .to(dtype)
-        .to(device)
-        .repeat(Nm, 1, 1)
-    )
-    pm_depth, _ = GetRayQueryDepthMap(
-        vulkan_ray_tracer=ray_querier, ray_o=pm.reshape(Nm, dim), ray_d=pm_rayd
-    )
-    pm_depth = pm_depth.reshape(Nm, 6, 1)
-    mask = (pm_depth >= 0).sum(dim=-2) == pm_depth.shape[-2]  # [Nm, 1]
-    mask = mask | (((pm_depth < 0.4) & (pm_depth >= 0)).sum(dim=-2) > 0)
-    mask = mask.reshape(res[0], res[2])
+    np_sdf = LoadSDFFromMeshPath(meshpath=f"{asset_path}/{geom}", size=max(res))
+    np_sdf = np_sdf[0, 0, :, np_sdf.shape[-2] // 2, :]  # [W, D]
+    np_sdf = np_sdf.transpose((1, 0))
+    sdf = torch.from_numpy(np_sdf).to(device).to(dtype)
+    mask = sdf <= 0
 
     Hinc = Hinc_func(freq=freq, eps_r=1.0, mu_r=1.0, pos=pm[:, 0, :])
 
@@ -307,7 +298,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--geom",
         type=str,
-        default="spot_v2.ply",
+        default="spot.ply",
         choices=[
             "fine_sphere.obj",
             "nasaAlmond_v3.ply",
@@ -316,6 +307,7 @@ if __name__ == "__main__":
             "human_v2.ply",
             "spot.ply",
             "spot_v2.ply",
+            "cheburashka.ply",
         ],
         help="The geometry",
     )

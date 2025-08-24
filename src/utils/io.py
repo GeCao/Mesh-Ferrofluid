@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import pywavefront
 import trimesh
 import cv2
+import mesh2sdf
 import matplotlib.pyplot as plt
 import open3d as o3d
 import tecplot as tp
@@ -385,3 +386,17 @@ def dump_tecplot_file(filepath: str, grids: Dict[str, torch.Tensor]):
 
     # Save as binary .plt file
     tp.data.save_tecplot_plt(filepath, dataset=ds)
+
+
+def LoadSDFFromMeshPath(meshpath: str, size: int) -> np.ndarray:
+    mesh_scale = 0.5
+    level = 2 / size
+    mesh = trimesh.load(meshpath, force="mesh")
+    # normalize mesh
+    vertices = mesh.vertices
+    # fix mesh
+    obs_sdf, mesh = mesh2sdf.compute(
+        vertices, mesh.faces, size, fix=True, level=level, return_mesh=True
+    )
+    obs_sdf = obs_sdf.reshape(1, 1, *obs_sdf.shape)
+    return obs_sdf

@@ -57,7 +57,7 @@ class MeshWOBSolver3d(AbstractWOBSolver):
         Einc_func,
         Hinc_func,
         max_depth: int = 10,
-        N_samples: int = 1024,
+        N_samples: int = 32,
     ) -> List[torch.Tensor]:
         """Mesh-based WOB solver: To solve Helmholtz problem
         Reference: Ryusuke Sugimoto, Terry Chen, Yiti Jiang, Christopher Batty, Toshiya Hachisuka, A Practical Walk-on-Boundary Method for Boundary Value Problems, 2023.

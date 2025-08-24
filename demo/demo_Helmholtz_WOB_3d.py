@@ -43,6 +43,7 @@ from src.utils import (
     initialize_vulkan_ray_querier,
     div_Js,
     vis_vert_Js,
+    LoadSDFFromMeshPath,
 )
 
 import soft_renderer as sr
@@ -402,21 +403,11 @@ def main(geom: str, res: List[int], freq: float, Z0: float):
     E_scattered = E_scattered.sum(dim=-2)  # [Nm, dim]
 
     # find mask
-    pm_rayd = (
-        torch.Tensor(
-            [[[0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0]]]
-        )
-        .to(dtype)
-        .to(device)
-        .repeat(Nm, 1, 1)
-    )
-    pm_depth, _ = GetRayQueryDepthMap(
-        vulkan_ray_tracer=ray_querier, ray_o=pm.reshape(Nm, dim), ray_d=pm_rayd
-    )
-    pm_depth = pm_depth.reshape(Nm, 6, 1)
-    mask = (pm_depth >= 0).sum(dim=-2) == pm_depth.shape[-2]  # [Nm, 1]
-    mask = mask | (((pm_depth < 0.4) & (pm_depth >= 0)).sum(dim=-2) > 0)
-    mask = mask.reshape(res[0], res[2])
+    np_sdf = LoadSDFFromMeshPath(meshpath=f"{asset_path}/{geom}", size=max(res))
+    np_sdf = np_sdf[0, 0, :, np_sdf.shape[-2] // 2, :]  # [W, D]
+    np_sdf = np_sdf.transpose((1, 0))
+    sdf = torch.from_numpy(np_sdf).to(device).to(dtype)
+    mask = sdf <= 0
 
     Hinc = Hinc_func(wavenumber=wavenumber, pos=pm[:, 0, :])
     Einc = Einc_func(wavenumber=wavenumber, pos=pm[:, 0, :])
@@ -482,6 +473,8 @@ if __name__ == "__main__":
             "human.ply",
             "human_v2.ply",
             "spot.ply",
+            "spot_v2.ply",
+            "cheburashka.ply",
         ],
         help="The geometry",
     )
